@@ -3,112 +3,160 @@ package topological
 import (
 	"cmp"
 	"context"
-	"slices"
+	"errors"
+	"fmt"
 	"sync"
 )
 
-type Result[V any] struct {
-	Value V
-	Err   error
-}
-
 type TaskFunc[T, V any] func(T, context.Context, []V) (V, error)
 
-type result[ID cmp.Ordered, V any] struct {
-	ID    ID
-	Value V
-	Error error
+func Tasks[ID cmp.Ordered, T, V any](ctx context.Context, elements []T, id IdentifierFunc[T, ID], edges EdgeFunc[T, ID], task TaskFunc[T, V]) ([]V, error) {
+	if err := Sort(elements, id, edges); err != nil {
+		return nil, err
+	}
+	nodes := make([]node[V], len(elements))
+	indexes := make(map[ID]int, len(nodes))
+	for i := range nodes {
+		indexes[id(elements[i])] = i
+	}
+	for i := range nodes {
+		nodes[i].all = &nodes
+		nodes[i].index = i
+		nodes[i].done = make(chan struct{})
+		nodes[i].function = closure(elements[i], task)
+		inputs := edges(elements[i])
+		nodes[i].inputs = make([]int, len(inputs))
+		for j, inputID := range inputs {
+			nodes[i].inputs[j] = indexes[inputID]
+		}
+	}
+	return run(ctx, nodes)
 }
 
-func Tasks[ID cmp.Ordered, T, V any](ctx context.Context, elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID], elementTask TaskFunc[T, V]) error {
-	err := Sort[T, ID](elements, elementID, elementEdges)
-	if err != nil {
-		return err
+func closure[T, V any](element T, task TaskFunc[T, V]) func(ctx context.Context, in []V) (V, error) {
+	return func(ctx context.Context, in []V) (V, error) {
+		return task(element, ctx, in)
 	}
-	results := make([]V, len(elements))
-	done := make([]ID, 0, len(elements))
+}
 
-	consumeResult := func(r result[ID, V]) error {
-		if r.Error != nil {
-			return r.Error
-		}
-		for i := range elements {
-			if elementID(elements[i]) == r.ID {
-				done = append(done, r.ID)
-				results[i] = r.Value
-				break
-			}
-		}
-		return nil
-	}
-	inputs := func(index int, in []ID) []V {
-		params := make([]V, len(in))
-		for i, id := range in {
-			for j := range elements[:index] {
-				if elementID(elements[j]) == id {
-					params[i] = results[j]
-					break
+func waitForInputs[T any](ctx context.Context, node node[T], all []node[T]) *sync.WaitGroup {
+	wg := new(sync.WaitGroup)
+	for _, input := range node.inputs {
+		wg.Add(1)
+		go func(n int, c <-chan struct{}) {
+			defer wg.Done()
+			for {
+				select {
+				case _, more := <-c:
+					if !more {
+						return
+					}
+				case <-ctx.Done():
+					return
 				}
 			}
-		}
-		return params
+		}(input, all[input].done)
 	}
+	return wg
+}
 
-	c := make(chan result[ID, V])
-
+func run[T any](ctx context.Context, nodes []node[T]) ([]T, error) {
+	for i := range nodes {
+		nodes[i].wg = waitForInputs(ctx, nodes[i], nodes)
+	}
 	wg := sync.WaitGroup{}
-	var cleanup sync.Once
-
-	next := 0
-loop:
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case r, ok := <-c:
-			if !ok {
-				break loop
+	for i := range nodes {
+		if err := ctx.Err(); err != nil {
+			break
+		}
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			nodes[i].run(ctx)
+		}(i)
+	}
+	wg.Wait()
+	results := make([]T, len(nodes))
+	errList := make([]error, 0, len(nodes))
+	for i := range nodes {
+		results[i] = nodes[i].result
+		if err := nodes[i].err; err != nil {
+			var (
+				fnErr functionError
+				upErr upstreamError
+			)
+			switch {
+			case errors.As(err, &upErr):
+				err = fmt.Errorf("node[%d] skipped due to upstream error", i)
+			case errors.As(err, &fnErr):
+				err = fmt.Errorf("node[%d] function returned error: %w", i, fnErr.err)
+			case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+				err = fmt.Errorf("node[%d] skipped: %w", i, err)
 			}
-			if err := consumeResult(r); err != nil {
-				return err
-			}
-		default:
-			if next >= len(elements) {
-				cleanup.Do(func() {
-					go func() {
-						wg.Wait()
-						close(c)
-					}()
-				})
-				continue
-			}
-			edges := elementEdges(elements[next])
-			if !isSubset(done, edges) {
-				continue
-			}
-			el := elements[next]
-			id := elementID(el)
-			wg.Add(1)
-			go func(id ID, element T, in []V) {
-				defer wg.Done()
-				res, err := elementTask(el, ctx, in)
-				c <- result[ID, V]{
-					ID:    id,
-					Value: res,
-					Error: err,
-				}
-			}(id, el, inputs(next, edges))
-			next++
+			errList = append(errList, err)
 		}
 	}
-	return nil
+	if len(errList) > 0 {
+		return nil, errors.Join(errList...)
+	}
+	return results, ctx.Err()
 }
 
-func isSubset[T cmp.Ordered](set, subset []T) bool {
-	for _, v := range subset {
-		if !slices.Contains(set, v) {
-			return false
+type node[T any] struct {
+	all      *[]node[T]
+	index    int
+	inputs   []int
+	function func(ctx context.Context, in []T) (T, error)
+	result   T
+	err      error
+
+	done chan struct{}
+	wg   *sync.WaitGroup
+}
+
+func (t *node[T]) run(ctx context.Context) {
+	defer close(t.done)
+	t.wg.Wait()
+	if err := ctx.Err(); err != nil {
+		t.err = err
+		return
+	}
+	in := make([]T, len(t.inputs))
+	for i, input := range t.inputs {
+		in[i] = (*t.all)[input].result
+		if err := (*t.all)[input].err; err != nil {
+			t.err = upstreamError{index: i, err: err}
+			return
 		}
 	}
-	return true
+	res, err := t.function(ctx, in)
+	if err != nil {
+		t.err = functionError{err: err}
+	}
+	t.result = res
+}
+
+type upstreamError struct {
+	index int
+	err   error
+}
+
+func (e upstreamError) Error() string {
+	return fmt.Sprintf("upstream error input[%d]: %v", e.index, e.err)
+}
+
+func (e upstreamError) Unwrap() error {
+	return e.err
+}
+
+type functionError struct {
+	err error
+}
+
+func (e functionError) Error() string {
+	return e.err.Error()
+}
+
+func (e functionError) Unwrap() error {
+	return e.err
 }
