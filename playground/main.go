@@ -5,16 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 func main() {
 	nodes := []node[int]{
-		{inputs: []int{}, function: identity(5)},
-		{inputs: []int{}, function: fail(fmt.Errorf("banana"))},
-		{inputs: []int{0, 1}, function: sum},
+		{inputs: []int{}, function: identity(2)},
+		{inputs: []int{}, function: identity(3)},
+		{inputs: []int{0, 1}, function: waitSum},
 		{inputs: []int{2}, function: sum},
+		{inputs: []int{3}, function: sum},
 	}
-	results, err := run(nodes)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second/5)
+	defer cancel()
+	results, err := run(ctx, nodes)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -22,7 +26,7 @@ func main() {
 	fmt.Println(results)
 }
 
-func sum(in []int) (int, error) {
+func sum(_ context.Context, in []int) (int, error) {
 	var s int
 	for _, i := range in {
 		s += i
@@ -30,7 +34,16 @@ func sum(in []int) (int, error) {
 	return s, nil
 }
 
-func product(in []int) (int, error) {
+func waitSum(ctx context.Context, in []int) (int, error) {
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-time.After(time.Second * 5):
+	}
+	return sum(ctx, in)
+}
+
+func product(ctx context.Context, in []int) (int, error) {
 	p := 1
 	for _, i := range in {
 		p *= i
@@ -38,46 +51,57 @@ func product(in []int) (int, error) {
 	return p, nil
 }
 
-func identity(n int) func([]int) (int, error) {
-	return func([]int) (int, error) {
+func identity(n int) func(context.Context, []int) (int, error) {
+	return func(context.Context, []int) (int, error) {
 		return n, nil
 	}
 }
 
-func fail(err error) func([]int) (int, error) {
-	return func([]int) (int, error) {
+func fail(err error) func(context.Context, []int) (int, error) {
+	return func(context.Context, []int) (int, error) {
 		return 0, err
 	}
 }
 
-func waitingTask[T any](node node[T], all []node[T]) *sync.WaitGroup {
+func waitingTask[T any](ctx context.Context, node node[T], all []node[T]) *sync.WaitGroup {
 	wg := new(sync.WaitGroup)
 	for _, input := range node.inputs {
 		wg.Add(1)
 		go func(n int, c <-chan struct{}) {
-			for range c {
+			defer wg.Done()
+			for {
+				select {
+				case _, more := <-c:
+					if !more {
+						return
+					}
+				case <-ctx.Done():
+					return
+				}
 			}
-			wg.Done()
 		}(input, all[input].done)
 	}
 	return wg
 }
 
-func run[T any](nodes []node[T]) ([]T, error) {
+func run[T any](ctx context.Context, nodes []node[T]) ([]T, error) {
 	for i := range nodes {
 		nodes[i].index = i
 		nodes[i].done = make(chan struct{})
 	}
 	for i := range nodes {
 		nodes[i].all = &nodes
-		nodes[i].wg = waitingTask(nodes[i], nodes)
+		nodes[i].wg = waitingTask(ctx, nodes[i], nodes)
 	}
 	wg := sync.WaitGroup{}
 	for i := range nodes {
+		if ctx.Err() != nil {
+			break
+		}
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			nodes[i].run()
+			nodes[i].run(ctx)
 		}(i)
 	}
 	wg.Wait()
@@ -91,12 +115,12 @@ func run[T any](nodes []node[T]) ([]T, error) {
 				upErr upstreamError
 			)
 			switch {
-			case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-				errList = append(errList, fmt.Errorf("node[%d] skipped context done: %w", i, err))
 			case errors.As(err, &upErr):
 				errList = append(errList, fmt.Errorf("node[%d] skipped due to upstream error", i))
 			case errors.As(err, &fnErr):
 				errList = append(errList, fmt.Errorf("node[%d] function returned error: %w", i, fnErr.err))
+			case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+				errList = append(errList, fmt.Errorf("node[%d] skipped: %w", i, err))
 			default:
 				errList = append(errList, fmt.Errorf("node[%d] unknown error: %w", i, err))
 			}
@@ -112,7 +136,7 @@ type node[T any] struct {
 	all      *[]node[T]
 	index    int
 	inputs   []int
-	function func(in []T) (T, error)
+	function func(ctx context.Context, in []T) (T, error)
 	result   T
 	err      error
 
@@ -120,9 +144,13 @@ type node[T any] struct {
 	wg   *sync.WaitGroup
 }
 
-func (t *node[T]) run() {
+func (t *node[T]) run(ctx context.Context) {
 	defer close(t.done)
 	t.wg.Wait()
+	if err := ctx.Err(); err != nil {
+		t.err = err
+		return
+	}
 	in := make([]T, len(t.inputs))
 	for i, input := range t.inputs {
 		in[i] = (*t.all)[input].result
@@ -131,7 +159,7 @@ func (t *node[T]) run() {
 			return
 		}
 	}
-	res, err := t.function(in)
+	res, err := t.function(ctx, in)
 	if err != nil {
 		t.err = functionError{err: err}
 	}
