@@ -1,4 +1,4 @@
-package topological
+package topo
 
 import (
 	"cmp"

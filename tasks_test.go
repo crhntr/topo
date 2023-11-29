@@ -1,4 +1,4 @@
-package topological_test
+package topo_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/crhntr/topological"
+	"github.com/crhntr/topo"
 )
 
 type Ingredient struct {
@@ -20,7 +20,7 @@ func (i Ingredient) RecipeIdentifier() int {
 	return i.RecipeID
 }
 
-var _ topological.TaskFunc[Recipe, Ingredient] = Recipe.Cook
+var _ topo.TaskFunc[Recipe, Ingredient] = Recipe.Cook
 
 var ErrBadRecipe = errors.New("bad recipe")
 
@@ -55,7 +55,7 @@ func TestTasks(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(ctx, s*time.Duration(len(recipes))/2)
 		t.Cleanup(cancel)
-		_, err := topological.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
+		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if err != nil {
 			t.Error(err)
 		}
@@ -65,7 +65,7 @@ func TestTasks(t *testing.T) {
 			{ID: 1, Ingredients: []int{1}},
 		}
 		ctx := context.Background()
-		_, err := topological.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
+		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if err == nil {
 			t.Error("expected and error")
 		}
@@ -75,7 +75,7 @@ func TestTasks(t *testing.T) {
 			{ID: 1, CookTime: time.Second / 20},
 		}
 		ctx := context.Background()
-		_, err := topological.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
+		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if err != nil {
 			t.Error("expected and error")
 		}
@@ -88,7 +88,7 @@ func TestTasks(t *testing.T) {
 			{ID: 3, CookTime: sleep},
 		}
 		ctx := context.Background()
-		_, err := topological.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
+		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if err != nil {
 			t.Error(err)
 		}
@@ -100,7 +100,7 @@ func TestTasks(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second/20)
 		t.Cleanup(cancel)
-		_, err := topological.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
+		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("expected deadline exceeded error, got: %v", err)
 		}
@@ -112,7 +112,7 @@ func TestTasks(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second/20)
 		cancel()
-		_, err := topological.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
+		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("expected deadline exceeded error, got: %v", err)
 		}
@@ -123,7 +123,7 @@ func TestTasks(t *testing.T) {
 			{ID: 2, Ingredients: []int{1}},
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second/20)
-		_, err := topological.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, func(t Recipe, ctx context.Context, vs []Ingredient) (Ingredient, error) {
+		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, func(t Recipe, ctx context.Context, vs []Ingredient) (Ingredient, error) {
 			cancel()
 			return Recipe.Cook(t, ctx, vs)
 		})
@@ -137,7 +137,7 @@ func TestTasks(t *testing.T) {
 			{ID: 2, CookTime: time.Minute, IsBad: true},
 		}
 		ctx := context.Background()
-		_, err := topological.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
+		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if !strings.Contains(err.Error(), "function returned error") {
 			t.Errorf("expected error to contain 'function returned error', got: %v", err)
 		}

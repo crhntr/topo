@@ -1,4 +1,4 @@
-package topological_test
+package topo_test
 
 import (
 	"cmp"
@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/crhntr/topological"
+	"github.com/crhntr/topo"
 )
 
 type Recipe struct {
@@ -40,7 +40,7 @@ func TestSort(t *testing.T) {
 				{ID: 2},
 				{ID: 3},
 			}
-			err := topological.Sort(recipes, Recipe.Identifier, Recipe.Edges)
+			err := topo.Sort(recipes, Recipe.Identifier, Recipe.Edges)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -54,7 +54,7 @@ func TestSort(t *testing.T) {
 				{ID: 2},
 				{ID: 1},
 			}
-			err := topological.Sort(recipes, Recipe.Identifier, Recipe.Edges)
+			err := topo.Sort(recipes, Recipe.Identifier, Recipe.Edges)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -73,7 +73,7 @@ func TestSort(t *testing.T) {
 				{ID: 4, Ingredients: []int{}},
 				{ID: 5, Ingredients: []int{}},
 			}
-			err := topological.Sort(recipes, Recipe.Identifier, Recipe.Edges)
+			err := topo.Sort(recipes, Recipe.Identifier, Recipe.Edges)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -85,7 +85,7 @@ func TestSort(t *testing.T) {
 			recipes := []Recipe{
 				{ID: 1, Ingredients: []int{1}},
 			}
-			err := topological.Sort(recipes, Recipe.Identifier, Recipe.Edges)
+			err := topo.Sort(recipes, Recipe.Identifier, Recipe.Edges)
 			if err == nil {
 				t.Error("expected an error")
 			}
@@ -96,7 +96,7 @@ func TestSort(t *testing.T) {
 				{ID: 2, Ingredients: []int{3}},
 				{ID: 3, Ingredients: []int{1}},
 			}
-			err := topological.Sort(recipes, Recipe.Identifier, Recipe.Edges)
+			err := topo.Sort(recipes, Recipe.Identifier, Recipe.Edges)
 			if err == nil {
 				t.Error("expected an error")
 			}
