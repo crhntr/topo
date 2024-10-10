@@ -1,17 +1,15 @@
 package topo
 
 import (
-	"cmp"
 	"fmt"
-	"slices"
 )
 
 type (
-	EdgeFunc[T any, ID cmp.Ordered]       func(T) []ID
-	IdentifierFunc[T any, ID cmp.Ordered] func(T) ID
+	EdgeFunc[T any, ID any]       func(T) []ID
+	IdentifierFunc[T any, ID any] func(T) ID
 )
 
-func Sort[T any, ID cmp.Ordered](elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID]) error {
+func Sort[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID]) error {
 	var (
 		visited   = make([]bool, 2*len(elements))
 		temporal  = visited[:len(elements)]
@@ -39,9 +37,6 @@ func Sort[T any, ID cmp.Ordered](elements []T, elementID IdentifierFunc[T, ID], 
 		permanent[ids[id]] = true
 		return nil
 	}
-	slices.SortFunc(elements, func(a, b T) int {
-		return cmp.Compare(elementID(a), elementID(b))
-	})
 	for i, e := range elements {
 		ids[elementID(e)] = i
 	}

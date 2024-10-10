@@ -54,6 +54,9 @@ func TestSort(t *testing.T) {
 				{ID: 2},
 				{ID: 1},
 			}
+			slices.SortFunc(recipes, func(a, b Recipe) int {
+				return cmp.Compare(a.ID, b.ID)
+			})
 			err := topo.Sort(recipes, Recipe.Identifier, Recipe.Edges)
 			if err != nil {
 				t.Fatal(err)

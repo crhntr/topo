@@ -1,7 +1,6 @@
 package topo
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -10,7 +9,7 @@ import (
 
 type TaskFunc[T, V any] func(T, context.Context, []V) (V, error)
 
-func Tasks[ID cmp.Ordered, T, V any](ctx context.Context, elements []T, id IdentifierFunc[T, ID], edges EdgeFunc[T, ID], task TaskFunc[T, V]) ([]V, error) {
+func Tasks[ID comparable, T, V any](ctx context.Context, elements []T, id IdentifierFunc[T, ID], edges EdgeFunc[T, ID], task TaskFunc[T, V]) ([]V, error) {
 	if err := Sort(elements, id, edges); err != nil {
 		return nil, err
 	}
