@@ -20,21 +20,22 @@ func Sort[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], e
 	)
 	var visit func(ID) error
 	visit = func(id ID) error {
-		if permanent[ids[id]] {
+		index := ids[id]
+		if permanent[index] {
 			return nil
 		}
-		if temporal[ids[id]] {
+		if temporal[index] {
 			return fmt.Errorf("cycle detected")
 		}
-		temporal[ids[id]] = true
-		e := elements[ids[id]]
+		temporal[index] = true
+		e := elements[index]
 		for _, dep := range elementEdges(e) {
 			if err := visit(dep); err != nil {
 				return err
 			}
 		}
 		sorted = append(sorted, e)
-		permanent[ids[id]] = true
+		permanent[index] = true
 		return nil
 	}
 	for i, e := range elements {
