@@ -1,9 +1,5 @@
 package topo
 
-import (
-	"fmt"
-)
-
 type (
 	EdgeFunc[T any, ID any]       func(T) []ID
 	IdentifierFunc[T any, ID any] func(T) ID
@@ -25,7 +21,7 @@ func Sort[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], e
 			return nil
 		}
 		if temporal[index] {
-			return fmt.Errorf("cycle detected")
+			return ErrCycleDetected
 		}
 		temporal[index] = true
 		e := elements[index]
