@@ -8,13 +8,21 @@ type (
 )
 
 func Sort[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID]) error {
+	sorted := make([]T, 0, len(elements))
+	err := iterate(elements, elementID, elementEdges, func(el T) {
+		sorted = append(sorted, el)
+	})
+	copy(elements, sorted)
+	return err
+}
+
+func iterate[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID], yield func(T)) error {
 	var (
 		visited   = make([]bool, 2*len(elements))
 		temporal  = visited[:len(elements)]
 		permanent = visited[len(elements):]
 
-		ids    = make(map[ID]int, len(elements))
-		sorted = make([]T, 0, len(elements))
+		ids = make(map[ID]int, len(elements))
 	)
 	var visit func(ID) error
 	visit = func(id ID) error {
@@ -32,7 +40,7 @@ func Sort[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], e
 				return err
 			}
 		}
-		sorted = append(sorted, e)
+		yield(e)
 		permanent[index] = true
 		return nil
 	}
@@ -44,6 +52,5 @@ func Sort[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], e
 			return err
 		}
 	}
-	copy(elements, sorted)
 	return nil
 }
