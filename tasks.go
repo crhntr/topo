@@ -75,6 +75,10 @@ func run[T any](ctx context.Context, nodes []node[T]) ([]T, error) {
 		}(i)
 	}
 	wg.Wait()
+	return collectErrors(ctx, nodes)
+}
+
+func collectErrors[T any](ctx context.Context, nodes []node[T]) ([]T, error) {
 	results := make([]T, len(nodes))
 	errList := make([]error, 0, len(nodes))
 	for i := range nodes {
