@@ -1,6 +1,9 @@
 package topo
 
-import "iter"
+import (
+	"iter"
+	"slices"
+)
 
 type (
 	EdgeFunc[T any, ID any]       func(T) iter.Seq[ID]
@@ -9,14 +12,14 @@ type (
 
 func Sort[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID]) error {
 	sorted := make([]T, 0, len(elements))
-	err := iterate(elements, elementID, elementEdges, func(el T) {
+	err := iterate(elements, elementID, elementEdges, func(el T, _ []ID) {
 		sorted = append(sorted, el)
 	})
 	copy(elements, sorted)
 	return err
 }
 
-func iterate[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID], yield func(T)) error {
+func iterate[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID], yield func(T, []ID)) error {
 	var (
 		visited   = make([]bool, 2*len(elements))
 		temporal  = visited[:len(elements)]
@@ -35,12 +38,13 @@ func iterate[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID]
 		}
 		temporal[index] = true
 		e := elements[index]
-		for dep := range elementEdges(e) {
+		inputs := slices.Collect(elementEdges(e))
+		for _, dep := range inputs {
 			if err := visit(dep); err != nil {
 				return err
 			}
 		}
-		yield(e)
+		yield(e, inputs)
 		permanent[index] = true
 		return nil
 	}
