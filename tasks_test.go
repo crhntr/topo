@@ -43,7 +43,7 @@ func (p Recipe) Cook(ctx context.Context, in []Ingredient) (Ingredient, error) {
 
 func TestTasks(t *testing.T) {
 	t.Run("no dependencies", func(t *testing.T) {
-		ctx := context.Background()
+		ctx := t.Context()
 		s := time.Second / 6
 		recipes := []Recipe{
 			{ID: 1, CookTime: s},
@@ -64,7 +64,7 @@ func TestTasks(t *testing.T) {
 		recipes := []Recipe{
 			{ID: 1, Ingredients: []int{1}},
 		}
-		ctx := context.Background()
+		ctx := t.Context()
 		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if err == nil {
 			t.Error("expected and error")
@@ -74,7 +74,7 @@ func TestTasks(t *testing.T) {
 		recipes := []Recipe{
 			{ID: 1, CookTime: time.Second / 20},
 		}
-		ctx := context.Background()
+		ctx := t.Context()
 		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if err != nil {
 			t.Error("expected and error")
@@ -87,7 +87,7 @@ func TestTasks(t *testing.T) {
 			{ID: 2, CookTime: sleep, Ingredients: []int{1, 3}},
 			{ID: 3, CookTime: sleep},
 		}
-		ctx := context.Background()
+		ctx := t.Context()
 		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if err != nil {
 			t.Error(err)
@@ -136,7 +136,7 @@ func TestTasks(t *testing.T) {
 			{ID: 1, CookTime: time.Minute, Ingredients: []int{2}},
 			{ID: 2, CookTime: time.Minute, IsBad: true},
 		}
-		ctx := context.Background()
+		ctx := t.Context()
 		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
 		if !strings.Contains(err.Error(), "function returned error") {
 			t.Errorf("expected error to contain 'function returned error', got: %v", err)
