@@ -2,6 +2,7 @@ package topo_test
 
 import (
 	"cmp"
+	"iter"
 	"slices"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ type Recipe struct {
 	IsBad       bool
 }
 
-func identifiers[T any, ID cmp.Ordered](in []T, id func(T) ID) []ID {
+func identifiers[T any, ID comparable](in []T, id func(T) ID) []ID {
 	ids := make([]ID, len(in))
 	for i := range in {
 		ids[i] = id(in[i])
@@ -24,13 +25,8 @@ func identifiers[T any, ID cmp.Ordered](in []T, id func(T) ID) []ID {
 	return ids
 }
 
-func (p Recipe) Edges() []int {
-	return slices.Clone(p.Ingredients)
-}
-
-func (p Recipe) Identifier() int {
-	return p.ID
-}
+func (p Recipe) Edges() iter.Seq[int] { return slices.Values(p.Ingredients) }
+func (p Recipe) Identifier() int      { return p.ID }
 
 func TestSort(t *testing.T) {
 	t.Run("no dependencies", func(t *testing.T) {

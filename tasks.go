@@ -23,10 +23,8 @@ func Tasks[ID comparable, T, V any](ctx context.Context, elements []T, id Identi
 		nodes[i].index = i
 		nodes[i].done = make(chan struct{})
 		nodes[i].function = closure(elements[i], task)
-		inputs := edges(elements[i])
-		nodes[i].inputs = make([]int, len(inputs))
-		for j, inputID := range inputs {
-			nodes[i].inputs[j] = indexes[inputID]
+		for dep := range edges(elements[i]) {
+			nodes[i].inputs = append(nodes[i].inputs, indexes[dep])
 		}
 	}
 	return run(ctx, nodes)

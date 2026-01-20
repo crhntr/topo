@@ -1,7 +1,9 @@
 package topo
 
+import "iter"
+
 type (
-	EdgeFunc[T any, ID any]       func(T) []ID
+	EdgeFunc[T any, ID any]       func(T) iter.Seq[ID]
 	IdentifierFunc[T any, ID any] func(T) ID
 )
 
@@ -25,7 +27,7 @@ func Sort[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], e
 		}
 		temporal[index] = true
 		e := elements[index]
-		for _, dep := range elementEdges(e) {
+		for dep := range elementEdges(e) {
 			if err := visit(dep); err != nil {
 				return err
 			}
