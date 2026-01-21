@@ -10,154 +10,100 @@ import (
 type TaskFunc[T, V any] func(T, context.Context, []V) (V, error)
 
 func Tasks[ID comparable, T, V any](ctx context.Context, elements []T, id IdentifierFunc[T, ID], edges EdgeFunc[T, ID], task TaskFunc[T, V]) ([]V, error) {
-	if err := Sort(elements, id, edges); err != nil {
-		return nil, err
+	elementID := id
+	type TaskState uint8
+
+	const (
+		Initializing TaskState = iota
+		Waiting
+		Loading
+		Running
+		Done
+		Errored
+		Skipped
+	)
+
+	type run struct {
+		state TaskState
+		sync.WaitGroup
+		result V
+		err    error
 	}
-	nodes := make([]node[V], len(elements))
-	indexes := make(map[ID]int, len(nodes))
-	for i := range nodes {
-		indexes[id(elements[i])] = i
-	}
-	for i := range nodes {
-		nodes[i].all = &nodes
-		nodes[i].index = i
-		nodes[i].done = make(chan struct{})
-		nodes[i].function = closure(elements[i], task)
-		for dep := range edges(elements[i]) {
-			nodes[i].inputs = append(nodes[i].inputs, indexes[dep])
+
+	done := func(node *graphNode[T, ID, run]) {
+		for _, c := range node.children {
+			c.data.Done()
 		}
 	}
-	return run(ctx, nodes)
-}
 
-func closure[T, V any](element T, task TaskFunc[T, V]) func(ctx context.Context, in []V) (V, error) {
-	return func(ctx context.Context, in []V) (V, error) {
-		return task(element, ctx, in)
-	}
-}
-
-func waitForInputs[T any](ctx context.Context, node node[T], all []node[T]) *sync.WaitGroup {
-	wg := new(sync.WaitGroup)
-	for _, input := range node.inputs {
-		wg.Add(1)
-		go func(n int, c <-chan struct{}) {
-			defer wg.Done()
-			for {
-				select {
-				case _, more := <-c:
-					if !more {
-						return
-					}
-				case <-ctx.Done():
-					return
-				}
-			}
-		}(input, all[input].done)
-	}
-	return wg
-}
-
-func run[T any](ctx context.Context, nodes []node[T]) ([]T, error) {
-	for i := range nodes {
-		nodes[i].wg = waitForInputs(ctx, nodes[i], nodes)
-	}
-	wg := sync.WaitGroup{}
-	for i := range nodes {
+	execRun := func(node *graphNode[T, ID, run]) {
 		if err := ctx.Err(); err != nil {
-			break
+			node.data.state = Skipped
+			done(node)
 		}
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			nodes[i].run(ctx)
-		}(i)
-	}
-	wg.Wait()
-	return collectErrors(ctx, nodes)
-}
+		node.data.state = Waiting
+		node.data.Wait()
+		node.data.state = Loading
 
-func collectErrors[T any](ctx context.Context, nodes []node[T]) ([]T, error) {
-	results := make([]T, len(nodes))
-	errList := make([]error, 0, len(nodes))
-	for i := range nodes {
-		results[i] = nodes[i].result
-		if err := nodes[i].err; err != nil {
-			var (
-				fnErr functionError
-				upErr upstreamError
-			)
-			switch {
-			case errors.As(err, &upErr):
-				err = fmt.Errorf("node[%d] skipped due to upstream error", i)
-			case errors.As(err, &fnErr):
-				err = fmt.Errorf("node[%d] function returned error: %w", i, fnErr.err)
-			case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-				err = fmt.Errorf("node[%d] skipped: %w", i, err)
+		var inputs []V
+		for _, p := range node.parents {
+			if p.data.state == Errored || p.data.state == Skipped {
+				node.data.state = Skipped
+				done(node)
 			}
-			errList = append(errList, err)
+			inputs = append(inputs, p.data.result)
 		}
-	}
-	if len(errList) > 0 {
-		return nil, errors.Join(errList...)
-	}
-	return results, ctx.Err()
-}
 
-type node[T any] struct {
-	all      *[]node[T]
-	index    int
-	inputs   []int
-	function func(ctx context.Context, in []T) (T, error)
-	result   T
-	err      error
-
-	done chan struct{}
-	wg   *sync.WaitGroup
-}
-
-func (t *node[T]) run(ctx context.Context) {
-	defer close(t.done)
-	t.wg.Wait()
-	if err := ctx.Err(); err != nil {
-		t.err = err
-		return
-	}
-	in := make([]T, len(t.inputs))
-	for i, input := range t.inputs {
-		in[i] = (*t.all)[input].result
-		if err := (*t.all)[input].err; err != nil {
-			t.err = upstreamError{index: i, err: err}
-			return
+		node.data.state = Running
+		result, err := task(node.element, ctx, inputs)
+		if err != nil {
+			node.data.state = Errored
+		} else {
+			node.data.state = Done
 		}
+		node.data.err = err
+		node.data.result = result
+		done(node)
 	}
-	res, err := t.function(ctx, in)
-	if err != nil {
-		t.err = functionError{err: err}
+
+	wg := sync.WaitGroup{}
+
+	errC := make(chan error)
+
+	resultsLock := new(sync.Mutex)
+	results := make([]V, len(elements))
+	_, err := newGraph(elements, elementID, edges, func(n *graphNode[T, ID, run]) {
+		n.data.state = Initializing
+		for range n.parents {
+			n.data.Add(1)
+		}
+		node := n
+		wg.Go(func() {
+			defer func() {
+				r := recover()
+				if r != nil {
+					errC <- fmt.Errorf("recovered: %s", r)
+				}
+			}()
+			n := node
+			execRun(n)
+			resultsLock.Lock()
+			results[n.index] = n.data.result
+			resultsLock.Unlock()
+			if n.data.err != nil {
+				errC <- n.data.err
+			}
+		})
+	})
+
+	go func() {
+		defer close(errC)
+		wg.Wait()
+	}()
+
+	for e := range errC {
+		err = errors.Join(err, e)
 	}
-	t.result = res
-}
 
-type upstreamError struct {
-	index int
-	err   error
-}
-
-func (e upstreamError) Error() string {
-	return fmt.Sprintf("upstream error input[%d]: %v", e.index, e.err)
-}
-
-func (e upstreamError) Unwrap() error {
-	return e.err
-}
-
-type functionError struct {
-	err error
-}
-
-func (e functionError) Error() string {
-	return e.err.Error()
-}
-
-func (e functionError) Unwrap() error {
-	return e.err
+	return nil, errors.Join(err, ctx.Err())
 }

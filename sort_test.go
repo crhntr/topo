@@ -100,5 +100,16 @@ func TestSort(t *testing.T) {
 				t.Error("expected an error")
 			}
 		})
+		t.Run("missing parent", func(t *testing.T) {
+			sleep := time.Second / 100
+			recipes := []Recipe{
+				{ID: 1, CookTime: sleep},
+				{ID: 2, CookTime: sleep, Ingredients: []int{999}},
+			}
+			err := topo.Sort(recipes, Recipe.Identifier, Recipe.Edges)
+			if err != nil {
+				t.Errorf("unexpected error: %s", err)
+			}
+		})
 	})
 }

@@ -12,14 +12,15 @@ type (
 
 func Sort[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID]) error {
 	sorted := make([]T, 0, len(elements))
-	err := iterate(elements, elementID, elementEdges, func(el T, _ []ID) {
+	err := iterate(elements, elementID, elementEdges, func(_ int, _ ID, el T, _ []ID) bool {
 		sorted = append(sorted, el)
+		return true
 	})
 	copy(elements, sorted)
 	return err
 }
 
-func iterate[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID], yield func(T, []ID)) error {
+func iterate[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID], elementEdges EdgeFunc[T, ID], yield func(int, ID, T, []ID) bool) error {
 	var (
 		visited   = make([]bool, 2*len(elements))
 		temporal  = visited[:len(elements)]
@@ -44,7 +45,9 @@ func iterate[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID]
 				return err
 			}
 		}
-		yield(e, inputs)
+		if !yield(index, id, e, inputs) {
+			return nil
+		}
 		permanent[index] = true
 		return nil
 	}

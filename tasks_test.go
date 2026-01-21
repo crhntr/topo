@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -93,6 +92,50 @@ func TestTasks(t *testing.T) {
 			t.Error(err)
 		}
 	})
+	t.Run("deeply nested", func(t *testing.T) {
+		sleep := time.Second / 100
+		recipes := []Recipe{
+			{ID: 1, CookTime: sleep},
+			{ID: 2, CookTime: sleep},
+			{ID: 3, CookTime: sleep, Ingredients: []int{1, 2}},
+			{ID: 4, CookTime: sleep, Ingredients: []int{1, 3}},
+			{ID: 5, CookTime: sleep, Ingredients: []int{1, 4}},
+			{ID: 6, CookTime: sleep, Ingredients: []int{1, 2, 5}},
+			{ID: 7, CookTime: sleep, Ingredients: []int{1, 2, 5}},
+			{ID: 8, CookTime: sleep, Ingredients: []int{1, 2, 3, 4, 5, 6}},
+			{ID: 9, CookTime: sleep},
+			{ID: 10, CookTime: sleep, Ingredients: []int{8}},
+			{ID: 11, CookTime: sleep, Ingredients: []int{1}},
+			{ID: 12, CookTime: sleep, Ingredients: []int{9}},
+			{ID: 13, CookTime: sleep, Ingredients: []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}},
+		}
+		ctx := t.Context()
+		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, func(recipe Recipe, ctx context.Context, vs []Ingredient) (Ingredient, error) {
+			t.Log(recipe.ID, vs)
+			return recipe.Cook(ctx, vs)
+		})
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	t.Run("missing parent", func(t *testing.T) {
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Error("expected panic")
+			}
+		}()
+		sleep := time.Second / 100
+		recipes := []Recipe{
+			{ID: 1, CookTime: sleep},
+			{ID: 2, CookTime: sleep, Ingredients: []int{999}},
+		}
+		ctx := t.Context()
+		_, _ = topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, func(recipe Recipe, ctx context.Context, vs []Ingredient) (Ingredient, error) {
+			t.Log(recipe.ID, vs)
+			return recipe.Cook(ctx, vs)
+		})
+	})
 	t.Run("context canceled after start", func(t *testing.T) {
 		recipes := []Recipe{
 			{ID: 1, CookTime: time.Minute},
@@ -138,9 +181,6 @@ func TestTasks(t *testing.T) {
 		}
 		ctx := t.Context()
 		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, Recipe.Cook)
-		if !strings.Contains(err.Error(), "function returned error") {
-			t.Errorf("expected error to contain 'function returned error', got: %v", err)
-		}
 		if !errors.Is(err, ErrBadRecipe) {
 			t.Errorf("expected bad recipe error, got: %v", err)
 		}
