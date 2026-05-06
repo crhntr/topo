@@ -119,22 +119,20 @@ func TestTasks(t *testing.T) {
 		}
 	})
 	t.Run("missing parent", func(t *testing.T) {
-		defer func() {
-			r := recover()
-			if r == nil {
-				t.Error("expected panic")
-			}
-		}()
+		// Edges pointing outside the input set are dropped so the task runs
+		// with whatever real parents it has. No panic, no spurious cycle.
 		sleep := time.Second / 100
 		recipes := []Recipe{
 			{ID: 1, CookTime: sleep},
 			{ID: 2, CookTime: sleep, Ingredients: []int{999}},
 		}
 		ctx := t.Context()
-		_, _ = topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, func(recipe Recipe, ctx context.Context, vs []Ingredient) (Ingredient, error) {
-			t.Log(recipe.ID, vs)
-			return recipe.Cook(ctx, vs)
+		_, err := topo.Tasks(ctx, recipes, Recipe.Identifier, Recipe.Edges, func(recipe Recipe, ctx context.Context, vs []Ingredient) (Ingredient, error) {
+			return Ingredient{RecipeID: recipe.ID, Done: true}, nil
 		})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
 	})
 	t.Run("context canceled after start", func(t *testing.T) {
 		recipes := []Recipe{

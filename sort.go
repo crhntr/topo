@@ -43,6 +43,10 @@ func iterate[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID]
 		temporal[index] = true
 		e := elements[index]
 		inputs := slices.Collect(elementEdges(e))
+		inputs = slices.DeleteFunc(inputs, func(dep ID) bool {
+			_, known := ids[dep]
+			return !known
+		})
 		for _, dep := range inputs {
 			if err := visit(dep); err != nil {
 				return err
