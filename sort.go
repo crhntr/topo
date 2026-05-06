@@ -30,7 +30,10 @@ func iterate[T any, ID comparable](elements []T, elementID IdentifierFunc[T, ID]
 	)
 	var visit func(ID) error
 	visit = func(id ID) error {
-		index := ids[id]
+		index, ok := ids[id]
+		if !ok {
+			return nil
+		}
 		if permanent[index] {
 			return nil
 		}
