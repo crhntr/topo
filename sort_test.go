@@ -111,5 +111,30 @@ func TestSort(t *testing.T) {
 				t.Errorf("unexpected error: %s", err)
 			}
 		})
+		t.Run("missing parent referenced by first element", func(t *testing.T) {
+			// Regression: an element at index 0 with a missing dependency previously
+			// produced a spurious ErrCycleDetected because lookups for unknown IDs
+			// fall back to the zero value (index 0), which is itself.
+			recipes := []Recipe{
+				{ID: 1, Ingredients: []int{999}},
+			}
+			err := topo.Sort(recipes, Recipe.Identifier, Recipe.Edges)
+			if err != nil {
+				t.Errorf("unexpected error: %s", err)
+			}
+		})
+		t.Run("missing parent in transitive subtree", func(t *testing.T) {
+			// Regression: while visiting element 0 (temporal=true), a transitive
+			// dependency hits a missing ID, which falls back to index 0 and looks
+			// like a cycle.
+			recipes := []Recipe{
+				{ID: 1, Ingredients: []int{2}},
+				{ID: 2, Ingredients: []int{999}},
+			}
+			err := topo.Sort(recipes, Recipe.Identifier, Recipe.Edges)
+			if err != nil {
+				t.Errorf("unexpected error: %s", err)
+			}
+		})
 	})
 }
